@@ -20,6 +20,7 @@
 #include "debug.h"
 #include "serial_input.h"
 #include "settings.h"
+#include "usb/usb_storage.h"
 #include "version.h"
 
 #define SERIAL_INPUT_BUFFER_SIZE 256
@@ -38,6 +39,8 @@ typedef enum {
     SERIAL_INPUT_CMD_PS1_MODE,
     SERIAL_INPUT_CMD_PS2_MODE,
     SERIAL_INPUT_CMD_MCA_MODE,
+    SERIAL_INPUT_CMD_MASS_MODE,
+    SERIAL_INPUT_CMD_EJECT,
     SERIAL_INPUT_CMD_PS2_VARIANT_RETAIL,
     SERIAL_INPUT_CMD_PS2_VARIANT_PROTO,
     SERIAL_INPUT_CMD_PS2_VARIANT_SC2,
@@ -81,8 +84,10 @@ static const char help_text[] =
     "  card down                           - Card down\n"
     "  set card <idx> [channel <idx>]      - Set card with optional channel\n"
     "  set game <id> [channel <idx>]       - Set game with optional channel\n"
-    "  set mode <mode>                     - Set mode: ps1, ps2, mca (disconnects USB serial)\n"
-    "  set variant <variant>               - Set PS2 variant: retail, proto, conquest, arcade\n";
+    "  set mode <mode>                     - Set mode: ps1, ps2, mca (disconnects USB serial),\n"
+    "                                        mass (SD card as a USB drive until the host ejects it)\n"
+    "  set variant <variant>               - Set PS2 variant: retail, proto, conquest, arcade\n"
+    "  eject                               - Leave USB mass storage (unmount the drive on the host first)\n";
 
 static char in_buffer[SERIAL_INPUT_BUFFER_SIZE];
 static size_t in_len;
@@ -298,6 +303,8 @@ static void parse_command(char* input, serial_input_cmd_data_t* cmd_data) {
         cmd_data->cmd = SERIAL_INPUT_CMD_HELP;
     } else if ((argc == 1) && (strcmp(argv[0], "version") == 0)) {
         cmd_data->cmd = SERIAL_INPUT_CMD_VERSION;
+    } else if ((argc == 1) && (strcmp(argv[0], "eject") == 0)) {
+        cmd_data->cmd = SERIAL_INPUT_CMD_EJECT;
     } else if ((argc >= 1) && (argc <= 2) && (strcmp(argv[0], "ls") == 0)) {
         cmd_data->cmd = SERIAL_INPUT_CMD_LS;
         if (!copy_path_arg((argc == 2) ? argv[1] : "/", cmd_data)) {
@@ -351,9 +358,11 @@ static void parse_command(char* input, serial_input_cmd_data_t* cmd_data) {
             cmd_data->cmd = SERIAL_INPUT_CMD_PS2_MODE;
         } else if (strcmp(argv[2], "mca") == 0) {
             cmd_data->cmd = SERIAL_INPUT_CMD_MCA_MODE;
+        } else if (strcmp(argv[2], "mass") == 0) {
+            cmd_data->cmd = SERIAL_INPUT_CMD_MASS_MODE;
         } else {
             cmd_data->cmd = SERIAL_INPUT_CMD_INVALID;
-            cmd_data->error = "Mode must be one of: ps1, ps2, mca";
+            cmd_data->error = "Mode must be one of: ps1, ps2, mca, mass";
         }
     } else if ((argc == 3) && (strcmp(argv[0], "set") == 0) && (strcmp(argv[1], "variant") == 0)) {
         if (strcmp(argv[2], "retail") == 0) {
@@ -377,6 +386,7 @@ static void parse_command(char* input, serial_input_cmd_data_t* cmd_data) {
 static void execute_command(const serial_input_cmd_data_t* cmd_data) {
     if (settings_get_usb_mode(true) == USB_MODE_MASS && cmd_data->cmd != SERIAL_INPUT_CMD_HELP &&
         cmd_data->cmd != SERIAL_INPUT_CMD_VERSION && cmd_data->cmd != SERIAL_INPUT_CMD_NONE &&
+        cmd_data->cmd != SERIAL_INPUT_CMD_EJECT &&
         cmd_data->cmd != SERIAL_INPUT_CMD_INVALID) {
         printf("Busy: USB storage owns the SD card\n");
         return;
@@ -485,6 +495,28 @@ static void execute_command(const serial_input_cmd_data_t* cmd_data) {
             #if WITH_GUI
             gui_mca_mode_changed();
             #endif
+            break;
+        case SERIAL_INPUT_CMD_MASS_MODE:
+            /* Same path as the USB Mode -> Mass menu entry: the running
+             * PS1/PS2 task sees the temporary mode and ends its session, and
+             * the main loop restarts USB with the storage profile. The host
+             * ejecting the drive returns to the previous mode. */
+            if (sd_is_busy()) {
+                printf("Busy: card operation in progress\n");
+                break;
+            }
+            printf("Switching USB to mass storage (USB will reconnect; eject the drive to return)\n");
+            settings_set_usb_mode(USB_MODE_MASS);
+            break;
+        case SERIAL_INPUT_CMD_EJECT:
+            /* Host-independent way out of mass storage: not every host sends
+             * the SCSI eject the storage session waits for. */
+            if (usb_storage_request_exit())
+                printf("Leaving USB mass storage (USB will reconnect)\n");
+            else if (settings_get_usb_mode(true) == USB_MODE_MASS)
+                printf("Error: USB storage is not ready to exit\n");
+            else
+                printf("Not in USB mass storage mode\n");
             break;
         case SERIAL_INPUT_CMD_PS2_VARIANT_RETAIL:
             printf("Set PS2 Variant: Retail\n");

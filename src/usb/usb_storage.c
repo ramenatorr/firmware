@@ -38,6 +38,18 @@ bool usb_storage_task(void) {
     return !finished;
 }
 
+bool usb_storage_request_exit(void) {
+    if (usb_session_get_mode() != USB_MODE_MASS)
+        return false;
+    if (!sd_sync_device())
+        return false;
+    /* Same end state as a completed host eject: the unit reports not ready,
+     * transfers are refused, and the session loop stops USB and remounts. */
+    eject_pending = true;
+    finished = true;
+    return true;
+}
+
 void usb_storage_deinit(void) {
     /* USB is stopped by the common session loop before remounting. */
     sleep_ms(20);

@@ -110,7 +110,16 @@ int main(void) {
     assert(usb_storage_task());
     session_mode = USB_MODE_MASS;
     assert(tud_msc_test_unit_ready_cb(0));
+    /* Serial `eject`: ends the session without a host eject. */
+    sync_ok = false;
+    assert(!usb_storage_request_exit() && usb_storage_task());
+    sync_ok = true;
+    assert(usb_storage_request_exit());
+    assert(!usb_storage_task() && !tud_msc_test_unit_ready_cb(0));
+    assert(tud_msc_write10_cb(0, 0, 0, buf, 512) == -1);
     usb_storage_deinit();
     assert(requested_mode == saved_mode);
+    session_mode = USB_MODE_UART;
+    assert(!usb_storage_request_exit());
     puts("MSC ownership, sector offsets, bounds, errors and eject tests passed");
 }
