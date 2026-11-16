@@ -69,6 +69,8 @@ bool sd_remount(void);
 bool sd_sync_device(void);
 uint32_t sd_sector_count(void);
 bool sd_read_sector(uint32_t sector, uint8_t *dst);
+bool sd_read_sector_robust(uint32_t sector, uint8_t *dst);
+bool sd_write_sector_robust(uint32_t sector, const uint8_t *src);
 bool sd_write_sector(uint32_t sector, const uint8_t *src);
 int sd_open(const char *path, int oflag);
 int sd_close(int fd);

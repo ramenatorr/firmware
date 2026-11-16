@@ -96,7 +96,11 @@ extern "C" bool sd_unmount(void) {
     return true;
 }
 
-extern "C" bool sd_remount(void) { return sd.volumeBegin(); }
+extern "C" bool sd_remount(void) {
+    if (sd.volumeBegin()) return true;
+    /* retrobox: after a failed USB read the card can need a full re-init before the volume mounts. */
+    return sd.begin(SdSpiConfig(SD_CS, DEDICATED_SPI, SD_BAUD, &SD_PERIPH));
+}
 extern "C" uint32_t sd_sector_count(void) { return sd.card()->sectorCount(); }
 extern "C" bool sd_read_sector(uint32_t sector, uint8_t *dst) {
     while (sd.card()->isBusy()) tight_loop_contents();
@@ -357,4 +361,26 @@ extern "C" sd_cid_t sd_get_CID(void) {
         memset(&out_cid, 0, sizeof(sd_cid_t));
     }
     return out_cid;
+}
+
+/* retrobox: USB drive mode on a Linux host. The kernel's first probe can hit one
+ * failed read (SdFat CMD18 parameter error, 0x0c40 on the FlipperMCE); without a
+ * retry every read after it fails and Linux sees "medium not present".
+ * Retry after ending any open stream, then once more after re-initialising the card. */
+static bool reinit_card_for_retry(void) {
+    return sd.cardBegin(SdSpiConfig(SD_CS, DEDICATED_SPI, SD_BAUD, &SD_PERIPH));
+}
+
+extern "C" bool sd_read_sector_robust(uint32_t sector, uint8_t *dst) {
+    if (sd_read_sector(sector, dst)) return true;
+    sd.card()->syncDevice();
+    if (sd_read_sector(sector, dst)) return true;
+    return reinit_card_for_retry() && sd_read_sector(sector, dst);
+}
+
+extern "C" bool sd_write_sector_robust(uint32_t sector, const uint8_t *src) {
+    if (sd_write_sector(sector, src)) return true;
+    sd.card()->syncDevice();
+    if (sd_write_sector(sector, src)) return true;
+    return reinit_card_for_retry() && sd_write_sector(sector, src);
 }

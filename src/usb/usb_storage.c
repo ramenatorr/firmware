@@ -99,14 +99,14 @@ static int32_t transfer(uint8_t lun, uint32_t lba, uint32_t offset,
         uint32_t n = 512 - off;
         if (n > remaining) n = remaining;
         if (!write || off || n != 512) {
-            if (!sd_read_sector(block, sector)) {
+            if (!sd_read_sector_robust(block, sector)) {
                 tud_msc_set_sense(lun, SCSI_SENSE_MEDIUM_ERROR, write ? 0x0c : 0x11, 0);
                 return -1;
             }
         }
         if (write) {
             memcpy(sector + off, bytes, n);
-            if (!sd_write_sector(block, sector)) {
+            if (!sd_write_sector_robust(block, sector)) {
                 tud_msc_set_sense(lun, SCSI_SENSE_MEDIUM_ERROR, 0x0c, 0);
                 return -1;
             }
