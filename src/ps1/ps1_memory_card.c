@@ -408,8 +408,13 @@ static void __no_inline_not_in_flash_func(mc_main)(void) {
         ps1_card_backend->shutdown();
 
         log(LOG_TRACE, "%s exit\n", __func__);
+        /* A switch to USB mass storage keeps the PS1 mode and MCA setting,
+         * but ps1_deinit still resets this core. Leave through the normal
+         * exit so the backend releases its PIO state machines; otherwise the
+         * next ps1_init cannot claim them and hangs after storage is ejected. */
         if (settings_get_mode(true) != MODE_PS1 ||
-            settings_get_mca_enabled() != backend_mode) {
+            settings_get_mca_enabled() != backend_mode ||
+            settings_get_usb_mode(true) == USB_MODE_MASS) {
             log(LOG_TRACE, "Mode or variant changed, exiting memcard core\n");
             return;
         } else {
