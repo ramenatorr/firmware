@@ -14,6 +14,10 @@
 
 static bool eject_pending, finished;
 static uint32_t sectors;
+/* retrobox: leave mass mode on our own after this long with no mounted USB host (the Pi hung, rebooted, or the cable
+ * was pulled), the same end state as `eject`, so the card never stays without card emulation. */
+#define NO_HOST_TIMEOUT_US (10u * 1000u * 1000u)
+static uint64_t last_host_us;
 
 void usb_storage_init(void) {
     /* The previous USB session has stopped; allow the host to see disconnect. */
@@ -24,6 +28,7 @@ void usb_storage_init(void) {
     if (!sectors)
         fatal(ERR_SDCARD, "USB storage: invalid SD capacity");
     eject_pending = finished = false;
+    last_host_us = time_us_64();
 #if WITH_GUI
     gui_usb_storage(true);
 #endif
@@ -35,6 +40,14 @@ bool usb_storage_task(void) {
     gui_task();
     oled_task();
 #endif
+    uint64_t now = time_us_64();
+    if (tud_mounted())
+        last_host_us = now;
+    else if (!finished && now - last_host_us > NO_HOST_TIMEOUT_US) {
+        sd_sync_device();
+        eject_pending = true;
+        finished = true;
+    }
     return !finished;
 }
 
